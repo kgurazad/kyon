@@ -23,14 +23,12 @@ var cacheRoleReactMessages = function () {
 //	console.log(guild.name);
         guild.channels.resolve(guildData[guild.id].announcementsChannel).fetch().then(function (announcementsChannel) {
 //	    console.log(announcementsChannel.name);
-	    announcementsChannel.messages.fetch(guildData[guild.id].roomReactMessage).then(function (roleReactMessage) {
+	    announcementsChannel.messages.fetch(guildData[guild.id].roleReactMessage).then(function (roleReactMessage) {
 //		console.log(roleReactMessage.content);
 	    });
         });
     }
 }
-
-cron.schedule('* * * * * *', cacheRoleReactMessages);
 
 var updateGuildData = function () {
     fs.writeFile(__dirname + '/guild-data.json', jsonFormat(guildData), function (err) { if (err) { console.error(err); } });
@@ -157,7 +155,7 @@ var init = async function (guild) {
 	'SEND_MESSAGES': false
     });
     await announcementsChannel.send(guild.name + ' is committed to ensuring that quizbowl is safe, open, and welcoming for everyone. If anyone at this tournament makes you feel unsafe or unwelcome, please do not hesitate to reach out to anyone with the ' + controlRoomRole.toString() + ' or ' + staffRole.toString() + ' roles. In addition, please feel free to make use of the quizbowl misconduct form, a joint effort by PACE, NAQT, ACF, and IAC [https://tinyurl.com/qbmisconduct].'); 
-    var roomReactMessage = await announcementsChannel.send('room react message TODO come up with nice sounding words');
+    var roleReactMessage = await announcementsChannel.send('room react message TODO come up with nice sounding words');
     var joinLogChannel = await guild.channels.create('join-log', {parent: hubCategory});
     await announcementsChannel.updateOverwrite(guild.roles.everyone, {
         'SEND_MESSAGES': false
@@ -181,16 +179,16 @@ var init = async function (guild) {
     await guild.setDefaultMessageNotifications('MENTIONS');
     await guild.setSystemChannel(generalChannel);
     guildData[guild.id] = {
-	announcementsChannel: announcementsChannel.id,
-	roomReactMessage: roomReactMessage.id,
-	joinLogChannel: joinLogChannel.id,
-	roles: {
+	'announcementsChannel': announcementsChannel.id,
+	'roleReactMessage': roleReactMessage.id,
+	'joinLogChannel': joinLogChannel.id,
+	'roles': {
 	    'Control Room': controlRoomRole.id,
 	    'Staff': staffRole.id,
 	    'Spectator': spectatorRole.id,
 	    'Player/Coach': playerCoachRole.id
 	},
-	rooms: []
+	'rooms': []
     };
     updateGuildData();
 }
@@ -233,7 +231,7 @@ var createRoom = async function (guild, name, staffSpectatorInvisible) {
     });
     updateGuildData();
     playerCoachRole.setPosition(1);
-    updateRoomReactMessage(guild);
+    updateRoleReactMessage(guild);
     return text;
 }
 
@@ -249,28 +247,28 @@ var deleteRoom = async function (guild, text) {
 	    parent.delete();
 	    guildData[guild.id].rooms.splice(i, 1);
 	    updateGuildData();
-	    updateRoomReactMessage(guild);
+	    updateRoleReactMessage(guild);
 	    return parent.name;
 	}
 	i++;
     }
 }
 
-var updateRoomReactMessage = async function (guild) {
+var updateRoleReactMessage = async function (guild) {
     var announcementsChannel = await guild.channels.resolve(guildData[guild.id].announcementsChannel).fetch();
-    var roomReactMessage = await announcementsChannel.messages.fetch(guildData[guild.id].roomReactMessage);
-    await roomReactMessage.reactions.removeAll();
+    var roleReactMessage = await announcementsChannel.messages.fetch(guildData[guild.id].roleReactMessage);
+    await roleReactMessage.reactions.removeAll();
     var newMessageText = 'room react message TODO come up with nice sounding words';
     if (guildData[guild.id].rooms.length) {
 	newMessageText += '\n';
 	var i = 0;
 	for (var room of guildData[guild.id].rooms) {
 	    newMessageText += letters[i] + ' <#' + room.textId + '>\n';
-	    roomReactMessage.react(letters[i]);
+	    roleReactMessage.react(letters[i]);
 	    i++;
 	}
     }
-    roomReactMessage.edit(newMessageText);
+    roleReactMessage.edit(newMessageText);
     return;
 }
 
@@ -358,23 +356,35 @@ client.on('message', function (message) {
     }
 });
 
-client.on('messageReactionAdd', function (messageReaction, user) {
-    console.log('rxn!');
-    if (!messageReaction.message.channel.guild) {
-	return;
-    }
-    var guild = messageReaction.message.channel.guild;
-    if (guildData[guild.id] && guildData[guild.id].announcementsChannel === messageReaction.message.channel.id && guildData[guild.id].roleReactMessage === messageReaction.message.id) {
-	console.log(messageReaction.emoji.toString());
-    }
+client.on('messageReactionAdd', function (reaction, user) {
+    try {
+	if (!reaction.message.channel.guild) {
+	    return;
+	}
+	var guild = reaction.message.channel.guild;
+	if (guildData[guild.id] && guildData[guild.id].announcementsChannel === reaction.message.channel.id && guildData[guild.id].roleReactMessage === reaction.message.id) {
+	    var roomIndex = letters.indexOf(reaction.emoji.toString());
+	    guild.members.fetch(user).then(function (member) {
+		member.roles.set([
+		    guildData[guild.id].roles['Player/Coach'],
+		    guildData[guild.id].rooms[roomIndex].roleId
+		]).then(function () {
+		    var guildJoinLogChannel = guild.resolve(guildData[guild.id].joinLogChannel);
+		    guildJoinLogChannel.send('<@!' + user.id + '> joined room <#' + guildData[guild.id].rooms[roomIndex].textId + '>');
+		}).catch(console.error);
+	    }).catch(console.error);
+	}
+    } catch (e) {}
 });
 
 client.on('ready', function () {
     console.log('up as ' + client.user.tag);
+    client.user.setActivity(config.prefix + 'help', {type: 'LISTENING'});
     for (var guild of client.guilds.cache.array()) {
-	console.log(guild.name + ' ' + guild.owner.user.tag);
+//	console.log(guild.name + ' ' + guild.owner.user.tag);
     }
     cacheRoleReactMessages();
+    cron.schedule('* * * * *', cacheRoleReactMessages);
     return;
 });
 
