@@ -1,7 +1,5 @@
 const Discord = require('discord.js');
-const client = new Discord.Client({
-    partials: ['MESSAGE', 'CHANNEL', 'REACTION', 'USER', 'GUILD_MEMBER']
-});
+const client = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 
 const fs = require('fs');
 const jsonFormat = require('json-format');
@@ -16,13 +14,13 @@ try {
 }
 
 const letters = ['🇦', '🇧', '🇨', '🇩', '🇪', '🇫', '🇬', '🇭', '🇮', '🇯', '🇰', '🇱', '🇲', '🇳', '🇴', '🇵', '🇶', '🇷', '🇸', '🇹', '🇺', '🇻', '🇼', '🇽', '🇾', '🇿'];
-
+/*
 var cron = require('node-cron');
 
 var cacheRoleReactMessages = function () {
     for (var guildId in guildData) {
         var guild = client.guilds.resolve(guildId);
-//	console.log(guild.name);
+	// console.log(guild.name);
         guild.channels.resolve(guildData[guild.id].announcementsChannel).fetch().then(function (announcementsChannel) {
 	    // console.log(announcementsChannel.name);
 	    announcementsChannel.messages.fetch(guildData[guild.id].roleReactMessage).then(function (roleReactMessage) {
@@ -31,28 +29,54 @@ var cacheRoleReactMessages = function () {
         });
     }
 }
+*/
+
+var processReaction = function (reaction, user) {
+    if (!reaction.message.channel.guild || user.bot) {
+	return;
+    }
+    console.log('reaction processing');
+    var guild = reaction.message.channel.guild;
+    if (guildData[guild.id] && guildData[guild.id].announcementsChannel === reaction.message.channel.id && guildData[guild.id].roleReactMessage === reaction.message.id) {
+	var roomIndex = letters.indexOf(reaction.emoji.toString());
+	console.log(roomIndex);
+	guild.members.fetch(user).then(function (member) {
+	    member.roles.add(guildData[guild.id].rooms[roomIndex].roleId).then(function () {
+		var guildJoinLogChannel = guild.resolve(guildData[guild.id].joinLogChannel);
+		guildJoinLogChannel.send('<@!' + user.id + '> joined room <#' + guildData[guild.id].rooms[roomIndex].textId + '>');
+		reaction.remove();
+	    }).catch(function (e) {
+		console.log('tried to add role but got this:');
+		console.error(e);
+	    });
+	}).catch(function (e) {
+	    console.log('tried to fetch member but got this:');
+	    console.error(e);
+	});
+    }
+};
+
+var collectors = {};
+var createReactionCollectors = function () {
+    for (var guildId in guildData) {
+	var guild = client.guilds.resolve(guildId);
+	console.log(guild.name);
+	guild.channels.resolve(guildData[guild.id].announcementsChannel).fetch().then(function (announcementsChannel) {
+	    announcementsChannel.messages.fetch(guildData[guild.id].roleReactMessage).then(function (roleReactMessage) {
+		console.log(roleReactMessage.content);
+		collectors[guildId] = roleReactMessage.createReactionCollector(function () { return true; }).on('collect', function (reaction, user) {
+		    console.log('reaction received');
+		    processReaction(reaction, user);
+		});
+		console.log('collector created');
+	    });
+	});
+    }
+};
 
 var updateGuildData = function () {
     fs.writeFile(__dirname + '/guild-data.json', jsonFormat(guildData), function (err) { if (err) { console.error(err); } });
 };
-
-var getTime = function () {
-    var now = new Date();
-    var h = now.getHours();
-    if (h < 10) {
-	h = '0' + h;
-    }
-    var m = now.getMinutes();
-    if (m < 10) {
-	m = '0' + m;
-    }
-    var s = now.getSeconds();
-    if (s < 10) {
-	s = '0' + s
-    }
-    var time = h + ':' + m + ':' + s;
-    return time;
-}
 
 var getMentions = function (command) {
     var split = command.split(/(<#|<@!|<@&|>)/g);
@@ -174,16 +198,13 @@ var init = async function (guild) {
     await announcementsChannel.updateOverwrite(guild.roles.everyone, {
 	'SEND_MESSAGES': false
     });
-    var inviteMessage = await announcementsChannel.send('Permanent invite link: ');
-    await announcementsChannel.send(guild.name + ' is committed to ensuring that quizbowl is safe, open, and welcoming for everyone. If anyone at this tournament makes you feel unsafe or unwelcome, please do not hesitate to reach out to anyone with the ' + controlRoomRole.toString() + ' or ' + staffRole.toString() + ' roles. In addition, please feel free to make use of the quizbowl misconduct form, a joint effort by PACE, NAQT, ACF, and IAC [https://tinyurl.com/qbmisconduct]. Anyone can report any incident they see, no matter where it occured or how small it may seem.'); 
+    await announcementsChannel.send(guild.name + ' is committed to ensuring that quizbowl is safe, open, and welcoming for everyone. If anyone at this tournament makes you feel unsafe or unwelcome, please do not hesitate to reach out to anyone with the ' + controlRoomRole.toString() + ' or ' + staffRole.toString() + ' roles. In addition, please feel free to make use of the quizbowl misconduct form, a joint effort by PACE, NAQT, ACF, and IAC [https://tinyurl.com/qbmisconduct].'); 
     var roleReactMessage = await announcementsChannel.send('room react message TODO come up with nice sounding words');
     var joinLogChannel = await guild.channels.create('join-log', {parent: hubCategory});
     await announcementsChannel.updateOverwrite(guild.roles.everyone, {
         'SEND_MESSAGES': false
     });
     var generalChannel = await guild.channels.create('general', {parent: hubCategory});
-    var invite = await generalChannel.createInvite({ maxAge: 0 });
-    await inviteMessage.edit('Permanent invite link: ' + invite.url);
     // var botCommandsChannel = await guild.channels.create('bot-commands', {parent: hubCategory});
     var hallwayVoiceChannel = await guild.channels.create('hallway-voice', {parent: hubCategory, type: 'voice'});
     // todo set hub permissions
@@ -211,11 +232,11 @@ var init = async function (guild) {
 	    'Spectator': spectatorRole.id,
 	    'Player/Coach': playerCoachRole.id
 	},
-	'rooms': [],
-	'members': {}
+	'rooms': []
     };
     updateGuildData();
-};
+    createReactionCollectors();
+}
 
 var createRoom = async function (guild, name, staffSpectatorInvisible) {
     var category = await guild.channels.create(name, {type: 'category'});
@@ -379,23 +400,21 @@ client.on('message', function (message) {
 	processCommand(command, message, force);
     }
 });
-
+/*
 client.on('messageReactionAdd', function (reaction, user) {
     try {
-//	console.log(reaction.partial);
-//	console.log(user.partial);
 	if (!reaction.message.channel.guild || user.bot) {
 	    return; // thank you old me, i was worried about DM reacts but you already took care of it! what a smart guy :)
 	}
-//	console.log('reaction received');
+	console.log('reaction received');
 	var guild = reaction.message.channel.guild;
 	if (guildData[guild.id] && guildData[guild.id].announcementsChannel === reaction.message.channel.id && guildData[guild.id].roleReactMessage === reaction.message.id) {
 	    var roomIndex = letters.indexOf(reaction.emoji.toString());
-//	    console.log(roomIndex);
+	    console.log(roomIndex);
 	    guild.members.fetch(user).then(function (member) {
-//		console.log(guildData[guild.id].roles['Player/Coach']);
-//		console.log(guildData[guild.id].rooms[roomIndex].roleId);
-		/*
+		console.log(guildData[guild.id].roles['Player/Coach']);
+		console.log(guildData[guild.id].rooms[roomIndex].roleId);
+		
 		member.roles.set([
 		    guildData[guild.id].roles['Player/Coach'],
 		    guildData[guild.id].rooms[roomIndex].roleId
@@ -407,63 +426,32 @@ client.on('messageReactionAdd', function (reaction, user) {
 		    console.log('tried to set roles but got this:');
 		    console.error(e);
 		});
-		*/
-		var addRole = function (oldRoomTextId) {
-		    member.roles.add(guildData[guild.id].rooms[roomIndex].roleId).then(function () {
-			client.channels.fetch(guildData[guild.id].joinLogChannel).then(function (joinLogChannel) {
-			    guildData[guild.id].members[member.id] = {
-				roomTextId: guildData[guild.id].rooms[roomIndex].textId,
-				roomRoleId: guildData[guild.id].rooms[roomIndex].roleId
-			    };
-			    var newRoomTextId = guildData[guild.id].rooms[roomIndex].textId;
-			    var time = '`' + getTime() + '` ';
-			    if (oldRoomTextId) {
-				// joinLogChannel.send('<@!' + user.id + '> left room <#' + oldRoomTextId + '>');
-				client.channels.resolve(oldRoomTextId).send(time + '<@!' + user.id + '> left room');
-				// joinLogChannel.send('<@!' + user.id + '> joined room <#' + newRoomTextId  + '>');
-				client.channels.resolve(newRoomTextId).send(time + '<@!' + user.id + '> joined room');
-				joinLogChannel.send(time + '<@!' + user.id + '> left room <#' + oldRoomTextId + '> and joined room <#' + newRoomTextId  + '>');
-			    } else {
-				joinLogChannel.send(time + '<@!' + user.id + '> joined room <#' + newRoomTextId  + '>');
-				client.channels.resolve(newRoomTextId).send(time + '<@!' + user.id + '> joined room');
-			    }
-			    reaction.users.remove(user);
-			    updateGuildData();
-			});
-		    }).catch(function (e) {
-			console.error('tried to add role but got this:');
-			console.error(e);
-		    });
-		}
-		var memberGuildDataEntry = guildData[guild.id].members[member.id];
-		if (memberGuildDataEntry) {
-		    member.roles.remove(memberGuildDataEntry.roomRoleId).then(function () {
-			addRole(memberGuildDataEntry.roomTextId);
-		    }).catch(function (e) {
-			console.error('tried to remove role but got this:');
-			console.error(e);
-		    }); 
-		} else {
-		    addRole(false);
-		}
+		
+		member.roles.add(guildData[guild.id].rooms[roomIndex].roleId).then(function () {
+		    var guildJoinLogChannel = guild.resolve(guildData[guild.id].joinLogChannel);
+		    guildJoinLogChannel.send('<@!' + user.id + '> joined room <#' + guildData[guild.id].rooms[roomIndex].textId + '>');
+		    reaction.remove();
+		}).catch(function (e) {
+		    console.log('tried to add role but got this:');
+		    console.error(e);
+		});
 	    }).catch(function (e) {
-		console.error('tried to fetch member but got this:');
+		console.log('tried to fetch member but got this:');
                 console.error(e);
 	    });
 	}
     } catch (e) {}
 });
-
+*/
 client.on('ready', function () {
     console.log('up as ' + client.user.tag);
     client.user.setActivity(config.prefix + 'help', {type: 'LISTENING'});
     for (var guild of client.guilds.cache.array()) {
 //	console.log(guild.name + ' ' + guild.owner.user.tag);
     }
-    /*
-    cacheRoleReactMessages();
-    cron.schedule('0,10,20,30,40,50 * * * * *', cacheRoleReactMessages);
-    */
+//  cacheRoleReactMessages();
+//  cron.schedule('0,10,20,30,40,50 * * * * *', cacheRoleReactMessages);
+    createReactionCollectors();
     return;
 });
 
