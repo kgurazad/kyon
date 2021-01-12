@@ -176,7 +176,7 @@ var init = async function (guild) {
     });
     var inviteMessage = await announcementsChannel.send('Permanent invite link: ');
     await announcementsChannel.send(guild.name + ' is committed to ensuring that quizbowl is safe, open, and welcoming for everyone. If anyone at this tournament makes you feel unsafe or unwelcome, please do not hesitate to reach out to anyone with the ' + controlRoomRole.toString() + ' or ' + staffRole.toString() + ' roles. In addition, please feel free to make use of the quizbowl misconduct form, a joint effort by PACE, NAQT, ACF, and IAC [https://tinyurl.com/qbmisconduct]. Anyone can report any incident they see, no matter where it occured or how small it may seem.'); 
-    var roleReactMessage = await announcementsChannel.send('room react message TODO come up with nice sounding words');
+    var roleReactMessage = await announcementsChannel.send('React to this message to join a room. You will be removed from all other rooms when you do so.');
     var joinLogChannel = await guild.channels.create('join-log', {parent: hubCategory});
     await announcementsChannel.updateOverwrite(guild.roles.everyone, {
         'SEND_MESSAGES': false
